@@ -3,3 +3,4 @@ opencv-python-headless
 pytube
 python-pptx
 imagehash
+pytesseract
