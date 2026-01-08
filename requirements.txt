@@ -4,3 +4,4 @@ pytube
 python-pptx
 imagehash
 pytesseract
+yt_dlp
