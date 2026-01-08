@@ -1,8 +1,6 @@
 streamlit
 opencv-python-headless
-pytube==15.0.0
+yt-dlp
 python-pptx
 imagehash
-pytesseract
-yt_dlp
-
+Pillow
