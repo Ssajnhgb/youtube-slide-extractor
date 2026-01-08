@@ -9,60 +9,88 @@ from PIL import Image
 
 st.title("YouTube Video Slide Extractor")
 
-url = st.text_input("Enter YouTube Video URL:")
+# Options for the user
+option = st.radio("Choose source:", ("YouTube URL", "Upload Video File (.mp4)"))
 
-if st.button("Process Video"):
-    if url:
-        try:
-            # Step 1: Download video using yt-dlp
-            st.write("Downloading video... this may take a minute.")
-            ydl_opts = {
-                'format': 'best[ext=mp4]',
-                'outtmpl': 'video.mp4',
-                'quiet': True
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
+video_path = "video.mp4"
+ready_to_process = False
+
+if option == "YouTube URL":
+    url = st.text_input("Enter YouTube Video URL:")
+    if st.button("Download & Process"):
+        if url:
+            try:
+                st.write("Downloading video... (Trying to bypass YouTube block)")
+                # Added browser headers to bypass 403 Forbidden errors
+                ydl_opts = {
+                    'format': 'best[ext=mp4]',
+                    'outtmpl': video_path,
+                    'quiet': True,
+                    'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'referer': 'https://www.google.com/',
+                }
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([url])
+                ready_to_process = True
+            except Exception as e:
+                st.error(f"YouTube Blocked the download: {e}. Please use the 'Upload' option instead.")
+        else:
+            st.warning("Please enter a URL.")
+
+else:
+    uploaded_file = st.file_uploader("Upload your lecture video", type=["mp4"])
+    if uploaded_file is not None:
+        with open(video_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        ready_to_process = True
+        if st.button("Process Uploaded Video"):
+            pass # Button triggers the logic below
+
+if ready_to_process:
+    try:
+        st.write("Extracting slides... this may take a few minutes.")
+        cam = cv2.VideoCapture(video_path)
+        prs = Presentation()
+        last_hash = None
+        count = 0
+        
+        # Progress bar for the user
+        progress_bar = st.progress(0)
+        total_frames = int(cam.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        while True:
+            ret, frame = cam.read()
+            if not ret:
+                break
             
-            # Step 2: Extract Slides
-            st.write("Extracting slides...")
-            cam = cv2.VideoCapture("video.mp4")
-            prs = Presentation()
-            last_hash = None
-            
-            count = 0
-            while True:
-                ret, frame = cam.read()
-                if not ret:
-                    break
+            # Check every 60 frames (approx 2 seconds) to avoid duplicate slides
+            if count % 60 == 0:
+                img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                curr_hash = imagehash.phash(img)
                 
-                # Check every 30 frames (approx 1 second) to save speed
-                if count % 30 == 0:
-                    img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                    curr_hash = imagehash.phash(img)
-                    
-                    if last_hash is None or curr_hash - last_hash > 15:
-                        # Slide changed! Add to PPT
-                        cv2.imwrite("temp_slide.jpg", frame)
-                        slide = prs.slides.add_slide(prs.slide_layouts[6])
-                        slide.shapes.add_picture("temp_slide.jpg", 0, 0, width=prs.slide_width)
-                        last_hash = curr_hash
+                # If the image hash changed significantly, it's a new slide
+                if last_hash is None or curr_hash - last_hash > 15:
+                    cv2.imwrite("temp_slide.jpg", frame)
+                    slide = prs.slides.add_slide(prs.slide_layouts[6])
+                    slide.shapes.add_picture("temp_slide.jpg", 0, 0, width=prs.slide_width)
+                    last_hash = curr_hash
                 
-                count += 1
+                # Update progress
+                if total_frames > 0:
+                    progress_bar.progress(min(count / total_frames, 1.0))
             
-            cam.release()
-            prs.save("presentation.pptx")
+            count += 1
+        
+        cam.release()
+        prs.save("presentation.pptx")
+        
+        st.success("Extraction Complete!")
+        with open("presentation.pptx", "rb") as f:
+            st.download_button("Download PPTX", f, file_name="lecture_slides.pptx")
+        
+        # Cleanup files to keep the server clean
+        if os.path.exists(video_path): os.remove(video_path)
+        if os.path.exists("temp_slide.jpg"): os.remove("temp_slide.jpg")
             
-            # Step 3: Provide Download
-            with open("presentation.pptx", "rb") as f:
-                st.download_button("Download PPTX", f, file_name="lecture_slides.pptx")
-            
-            # Cleanup
-            os.remove("video.mp4")
-            if os.path.exists("temp_slide.jpg"):
-                os.remove("temp_slide.jpg")
-                
-        except Exception as e:
-            st.error(f"An error occurred: {e}")
-    else:
-        st.warning("Please enter a URL.")
+    except Exception as e:
+        st.error(f"Processing Error: {e}")
