@@ -1,7 +1,8 @@
 streamlit
 opencv-python-headless
-pytube
+pytube==15.0.0
 python-pptx
 imagehash
 pytesseract
 yt_dlp
+
